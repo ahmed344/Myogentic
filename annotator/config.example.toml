@@ -1,0 +1,13 @@
+# Copy to config.toml to override defaults. Keep source IDs stable when moving disks.
+# Relative database paths are resolved against the annotator directory.
+database = "data/annotations.sqlite3"
+
+[[sources]]
+id = "ssd-raw"
+label = "SSD · Raw slides"
+path = "/home/ahmed/Data/HE-MYO/Raw"
+
+[[sources]]
+id = "hdd-raw"
+label = "HDD · Raw slides"
+path = "/home/ahmed/Data/HDD/Data/HE-MYO/Raw"

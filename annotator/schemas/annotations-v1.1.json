@@ -1,0 +1,76 @@
+{
+  "version": "1.1",
+  "status": "Prototype vocabulary; requires review with participating doctors",
+  "principle": "Record visible morphology on this H&E section. Patterns may coexist; these assessments do not establish a patient diagnosis.",
+  "presence": [
+    "unassessed",
+    "present",
+    "absent",
+    "uncertain",
+    "not_assessable"
+  ],
+  "severity": [
+    "unassessed",
+    "mild",
+    "moderate",
+    "marked",
+    "not_applicable"
+  ],
+  "certainty": [
+    "low",
+    "moderate",
+    "high"
+  ],
+  "patterns": [
+    {
+      "id": "myopathic",
+      "label": "Myopathic pattern"
+    },
+    {
+      "id": "dystrophic",
+      "label": "Dystrophic pattern"
+    },
+    {
+      "id": "inflammatory",
+      "label": "Inflammatory pattern"
+    },
+    {
+      "id": "neurogenic",
+      "label": "Neurogenic pattern"
+    }
+  ],
+  "findings": [
+    {
+      "id": "fiber_size_variation",
+      "label": "Variation in fiber size"
+    },
+    {
+      "id": "internal_nuclei",
+      "label": "Internal nuclei",
+      "help": "Nuclei located inside muscle fibers, away from the edge."
+    },
+    {
+      "id": "necrosis_regeneration",
+      "label": "Necrosis / regeneration",
+      "help": "Muscle fiber death or repair."
+    },
+    {
+      "id": "inflammatory_infiltrate",
+      "label": "Inflammatory cells",
+      "help": "Inflammatory infiltrate in the tissue."
+    },
+    {
+      "id": "fibrosis_adipose",
+      "label": "Fibrosis / fat replacement",
+      "help": "Muscle replaced by fibrous tissue or fat cells (adipocytes)."
+    },
+    {
+      "id": "grouped_atrophy",
+      "label": "Grouped atrophy",
+      "help": "Groups of small, atrophic muscle fibers."
+    }
+  ],
+  "coordinates": "Evidence rectangles use level-0 pixels of the full original slide, with origin at top-left. No bounds cropping or rotation.",
+  "certainty_default": "high",
+  "change_note": "Simpler display labels; stable finding IDs and meanings. Confidence defaults to high for new reviews and when editing legacy reviews without confidence. Original revisions remain unchanged."
+}

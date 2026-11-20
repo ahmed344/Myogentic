@@ -1,0 +1,23 @@
+{
+  "version": "1.0",
+  "status": "Prototype vocabulary; requires review with participating doctors",
+  "principle": "Record visible morphology on this H&E section. Patterns may coexist; these assessments do not establish a patient diagnosis.",
+  "presence": ["unassessed", "present", "absent", "uncertain", "not_assessable"],
+  "severity": ["unassessed", "mild", "moderate", "marked", "not_applicable"],
+  "certainty": ["unassessed", "low", "moderate", "high"],
+  "patterns": [
+    {"id": "myopathic", "label": "Myopathic pattern"},
+    {"id": "dystrophic", "label": "Dystrophic pattern"},
+    {"id": "inflammatory", "label": "Inflammatory pattern"},
+    {"id": "neurogenic", "label": "Neurogenic pattern"}
+  ],
+  "findings": [
+    {"id": "fiber_size_variation", "label": "Fiber size variation"},
+    {"id": "internal_nuclei", "label": "Internal nuclei"},
+    {"id": "necrosis_regeneration", "label": "Necrosis / regeneration"},
+    {"id": "inflammatory_infiltrate", "label": "Inflammatory infiltrate"},
+    {"id": "fibrosis_adipose", "label": "Fibrosis / adipose replacement"},
+    {"id": "grouped_atrophy", "label": "Grouped atrophy"}
+  ],
+  "coordinates": "Evidence rectangles use level-0 pixels of the full original slide, with origin at top-left. No bounds cropping or rotation."
+}

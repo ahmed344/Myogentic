@@ -1,3 +1,64 @@
+# Keep source and text files by name. Other formats, including databases,
+# whole-slide images, SVGs, and other binary assets, are ignored by default.
+# Keep directories traversable so these rules work in subdirectories.
+*
+!*/
+
+# Source, scripts, and stylesheets
+!*.py
+!*.pyi
+!*.ipynb
+!*.sh
+!*.bash
+!*.js
+!*.jsx
+!*.mjs
+!*.cjs
+!*.ts
+!*.tsx
+!*.mts
+!*.cts
+!*.css
+!*.scss
+!*.html
+!*.sql
+!*.r
+!*.R
+!*.c
+!*.cpp
+!*.h
+!*.hpp
+
+# Documentation and structured text
+!*.md
+!*.rst
+!*.txt
+!*.csv
+!*.tsv
+!*.json
+!*.jsonl
+!*.xml
+!*.toml
+!*.yaml
+!*.yml
+!*.ini
+!*.cfg
+!README
+!LICENSE
+!Makefile
+!Dockerfile
+!Containerfile
+
+# Text files with special names
+!.gitignore
+!.gitattributes
+!.gitmodules
+!.dockerignore
+!.editorconfig
+!.node-version
+!.python-version
+!uv.lock
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
