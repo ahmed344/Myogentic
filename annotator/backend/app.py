@@ -86,7 +86,7 @@ def create_app(settings: Settings | None = None):
 
     @app.get("/api/config")
     def configuration():
-        return {"definitions": DEFINITIONS, "scan": public_scan()}
+        return {"definitions": DEFINITIONS, "definition_versions": DEFINITION_VERSIONS, "scan": public_scan()}
 
     @app.post("/api/rescan")
     def rescan():
@@ -156,8 +156,8 @@ def create_app(settings: Settings | None = None):
         if request.assessment.regions:
             with pool.open(path) as (slide, _, _):
                 width, height = slide.dimensions
-                if any(r.x + r.width > width + 0.01 or r.y + r.height > height + 0.01 for r in request.assessment.regions):
-                    raise HTTPException(422, "Evidence rectangle lies outside the original slide")
+                if any(not region.fits_slide(width, height) for region in request.assessment.regions):
+                    raise HTTPException(422, "Evidence geometry exceeds the original slide bounds")
         return store.save(slide_id, reviewer.strip(), kind, request.expected_revision, request.assessment)
 
     @app.get("/api/slides/{slide_id}/history")
@@ -180,7 +180,7 @@ def create_app(settings: Settings | None = None):
         latest = {(r["slide_id"], r["reviewer"], r["kind"]): r for r in data["revisions"]}
         output = io.StringIO()
         columns = ["slide_id", "slide_name", "reviewer", "kind", "revision", "saved_at", "schema_version",
-                   "status", "overall", "extent", "certainty", "dominant", "comments", "patterns_json", "findings_json", "finding_grades_json", "legacy_findings_json", "regions_json"]
+                   "status", "overall", "extent", "certainty", "dominant", "comments", "patterns_json", "findings_json", "finding_grades_json", "legacy_findings_json", "regions_json", "finding_types_json"]
         writer = csv.DictWriter(output, fieldnames=columns)
         writer.writeheader()
         def safe_cell(value):
@@ -192,7 +192,7 @@ def create_app(settings: Settings | None = None):
             row["slide_name"] = names[r["slide_id"]]["name"]
             row.update({k: doc[k] for k in ("schema_version", "status", "overall", "extent", "certainty", "dominant", "comments")})
             row.update({f"{k}_json": json.dumps(doc[k]) for k in ("patterns", "findings", "regions")})
-            row.update({f"{k}_json": json.dumps(doc.get(k)) for k in ("finding_grades", "legacy_findings")})
+            row.update({f"{k}_json": json.dumps(doc.get(k)) for k in ("finding_grades", "legacy_findings", "finding_types")})
             writer.writerow({k: safe_cell(v) for k, v in row.items()})
         return Response(output.getvalue(), media_type="text/csv", headers={"Content-Disposition": 'attachment; filename="myogentic-summary.csv"'})
 

@@ -1,5 +1,6 @@
 import csv
 import io
+import json
 from contextlib import contextmanager
 
 import openslide
@@ -9,7 +10,7 @@ from PIL import Image
 
 from backend.app import create_app
 from backend.config import Settings, Source
-from backend.models import Assessment, LegacyAssessment
+from backend.models import Assessment, AssessmentV2, AssessmentV3, LegacyAssessment
 from backend.storage import Store
 
 HEADERS = {"X-Myogentic-Client": "annotator"}
@@ -73,7 +74,7 @@ def test_independent_reviewers_revisions_and_adjudication(workspace):
     assert Store(settings).assessment(sid, "Doctor A", "individual")["assessment"] == doc
     exported = client.get("/api/export.json").json()
     assert len(exported["revisions"]) == 4
-    assert exported["definitions"]["version"] == "2.0"
+    assert exported["definitions"]["version"] == "4.3"
     assert exported["revisions"][0]["slide_fingerprint"]["size"] > 0
 
 
@@ -98,6 +99,81 @@ def test_regions_roundtrip_and_reject_invalid_geometry(workspace):
     assert save(client, sid, doc, 1).status_code == 422
     doc["regions"][0]["width"] = -1
     assert save(client, sid, doc, 1).status_code == 422
+
+
+def test_brush_redraw_and_legacy_rectangle_roundtrip(workspace):
+    client, sid, _ = workspace
+    rectangle = dict(id='old', label='Earlier note', x=10, y=20, width=30, height=25)
+    old = Assessment(schema_version='4.1').model_dump()
+    old['regions'] = [rectangle]
+    assert save(client, sid, old).status_code == 200
+    brush = dict(id='mark', label='Freehand evidence', shape='brush', diameter=9.5,
+                 points=[[0, 0], [31.5, 27], [40, 13], [61, 40]])
+    current = {**old, 'schema_version': '4.2', 'regions': [rectangle, brush]}
+    assert save(client, sid, current, 1).status_code == 200
+    assert client.get(endpoint(sid)).json()['assessment']['regions'] == [rectangle, brush]
+    revised = {**brush, 'diameter': 3, 'points': [[1024, 768]]}
+    edited = {**current, 'regions': [rectangle, revised]}
+    assert save(client, sid, edited, 2).status_code == 200
+    assert [r['assessment'] for r in client.get(endpoint(sid, 'history')).json()] == [edited, current, old]
+    assert client.get('/api/export.json').json()['revisions'][-1]['assessment']['regions'] == edited['regions']
+    row = next(csv.DictReader(io.StringIO(client.get('/api/export.csv').text)))
+    assert json.loads(row['regions_json']) == edited['regions']
+    assert save(client, sid, {**old, 'regions': [brush]}, 3).status_code == 422
+
+
+@pytest.mark.parametrize('patch', [
+    {'points': []}, {'points': [[-1, 2]]}, {'points': [[10, 769]]}, {'points': [[1, 2, 3]]},
+    {'points': [[1, 1]] * 8193}, {'diameter': 0}, {'diameter': 1e10},
+])
+def test_brush_rejects_invalid_geometry(workspace, patch):
+    client, sid, _ = workspace
+    region = dict(id='brush', label='', shape='brush', diameter=3, points=[[100, 100]])
+    doc = Assessment().model_dump()
+    doc['regions'] = [{**region, **patch}]
+    assert save(client, sid, doc).status_code == 422
+    assert client.get(endpoint(sid)).json()['revision'] == 0
+
+
+def test_revise_compound_region_with_fill_and_erase(workspace):
+    client, sid, _ = workspace
+    old_brush = dict(shape='brush', id='r1', label='Area A', diameter=4, points=[[40, 40]])
+    old = {**Assessment(schema_version='4.2').model_dump(), 'regions': [old_brush]}
+    assert save(client, sid, old).status_code == 200
+    strokes = [
+        dict(mode='paint', diameter=4, points=[[40, 40]]),
+        dict(mode='outline', diameter=6, points=[[50, 60], [90, 100], [90, 60]]),
+        dict(mode='erase', diameter=4, points=[[90, 60]]),
+    ]
+    region = dict(id='r1', label='Area A', shape='compound', base=None, strokes=strokes)
+    current = {**old, 'schema_version': '4.3', 'regions': [region]}
+    assert save(client, sid, current, 1).status_code == 200
+    filled = {**region, 'strokes': [strokes[0], {**strokes[1], 'mode': 'fill'}, strokes[2]]}
+    finished = {**current, 'regions': [filled]}
+    assert save(client, sid, finished, 2).status_code == 200
+    assert client.get(endpoint(sid)).json()['assessment'] == finished
+    assert [r['assessment'] for r in client.get(endpoint(sid, 'history')).json()] == [finished, current, old]
+    assert client.get('/api/export.json').json()['revisions'][-1]['assessment'] == finished
+    row = next(csv.DictReader(io.StringIO(client.get('/api/export.csv').text)))
+    assert json.loads(row['regions_json']) == [filled]
+    assert save(client, sid, {**finished, 'schema_version': '4.2'}, 3).status_code == 422
+
+
+def test_compound_geometry_requires_valid_strokes_and_checks_slide_bounds(workspace):
+    client, sid, _ = workspace
+    mark = dict(mode='paint', points=[[5, 5]], diameter=4)
+    erase = {**mark, 'mode': 'erase'}
+    base = dict(x=1, y=2, width=10, height=20)
+    region = dict(id='r', label='Original rectangle', shape='compound', base=base, strokes=[erase])
+    doc = {**Assessment().model_dump(), 'regions': [region]}
+    assert save(client, sid, doc).status_code == 200
+    for patch in [
+        dict(base=None), dict(base={**base, 'width': 1025}), dict(strokes=[]),
+        dict(strokes=[mark] * 513), dict(strokes=[mark, {**erase, 'points': [[1025, 0]]}]),
+        dict(strokes=[{**mark, 'mode': 'fill', 'points': [[2, 2], [2, 2], [3, 3], [4, 4]]}]),
+    ]:
+        assert save(client, sid, {**doc, 'regions': [{**region, **patch}]}, 1).status_code == 422
+    assert client.get(endpoint(sid)).json()['assessment'] == doc
 
 
 def test_deepzoom_metadata_tiles_and_bounds(workspace):
@@ -231,7 +307,7 @@ def test_legacy_confidence_and_revision_definitions_are_preserved(workspace):
     assert history[1]["assessment"] == legacy
     assert history[0]["assessment"]["patterns"]["myopathic"]["certainty"] == "low"
     export = client.get("/api/export.json").json()
-    assert set(export["definition_versions"]) == {"1.0", "1.1", "2.0"}
+    assert set(export["definition_versions"]) == {"1.0", "1.1", "2.0", "3.0", "4.0", "4.1", "4.2", "4.3"}
     assert "unassessed" in export["definition_versions"]["1.0"]["certainty"]
     assert export["definitions"]["certainty"] == ["low", "moderate", "high"]
 
@@ -255,7 +331,8 @@ def test_browser_payloads_and_exports_hide_original_identity(workspace):
     assert slides[0]['name'] == f'SL-{sid.upper()}'
     assert set(slides[0]) == {'id', 'name', 'available', 'revision', 'saved_at', 'status'}
     config = client.get('/api/config').json()
-    assert set(config) == {'definitions', 'scan'}
+    assert set(config) == {'definitions', 'definition_versions', 'scan'}
+    assert config['definition_versions'] == client.get('/api/export.json').json()['definition_versions']
     exported = client.get('/api/export.json').json()
     assert 'sources' not in exported
     assert exported['slides'][0] == {'id': sid, 'name': slides[0]['name'], 'available': 1}
@@ -346,12 +423,13 @@ def test_separate_findings_and_grades_round_trip_and_export(workspace):
     doc = Assessment().model_dump()
     assert set(doc['finding_grades'].values()) == {'unassessed'}
     assert set(doc['findings']) == set(doc['finding_grades'])
-    assert not {'internal_nuclei', 'necrosis_regeneration', 'grouped_atrophy'} & doc['findings'].keys()
+    assert not {'nuclear_alterations', 'internal_nuclei', 'inflammatory_infiltrate', 'necrosis_regeneration', 'grouped_atrophy', 'atrophy'} & doc['findings'].keys()
     independent = {
-        'internal_nuclei_noncentered': ('present', 'grade_1'), 'centered_nuclei': ('absent', 'not_applicable'),
+        'internal_nuclei_noncentered': ('present', 'grade_1'), 'centered_nuclei': ('uncertain', 'grade_2'),
+        'perimysial': ('present', 'grade_3'), 'endomysial': ('present', 'grade_1'), 'perivascular': ('absent', 'not_applicable'),
         'necrosis': ('present', 'grade_3'), 'regeneration': ('present', 'grade_1'),
-        'rounded_atrophy': ('present', 'grade_2'), 'angular_atrophy': ('uncertain', 'unassessed'),
-        'perifascicular_atrophy': ('not_assessable', 'unassessed'),
+        'rounded_atrophy': ('present', 'grade_2'), 'angular_atrophy': ('uncertain', 'grade_1'),
+        'perifascicular_atrophy': ('present', 'grade_3'),
     }
     for finding, (presence, grade) in independent.items():
         doc['findings'][finding] = presence
@@ -362,9 +440,76 @@ def test_separate_findings_and_grades_round_trip_and_export(workspace):
     exported = client.get('/api/export.json').json()
     assert exported['revisions'][0]['assessment'] == doc
     row = next(csv.DictReader(io.StringIO(client.get('/api/export.csv').text)))
-    import json
     assert json.loads(row['findings_json']) == doc['findings']
     assert json.loads(row['finding_grades_json']) == doc['finding_grades']
+    groups = {f['label']: [t['id'] for t in f['types']] for f in exported['definitions']['findings'] if 'types' in f}
+    assert groups == {'Nuclear alterations': ['internal_nuclei_noncentered', 'centered_nuclei'],
+                      'Inflammatory cells': ['perimysial', 'endomysial', 'perivascular'],
+                      'Atrophy': ['rounded_atrophy', 'angular_atrophy', 'perifascicular_atrophy']}
+    for id in independent:
+        invalid = {**doc, 'findings': {**doc['findings'], id: 'absent'},
+                   'finding_grades': {**doc['finding_grades'], id: 'grade_3'}}
+        assert save(client, sid, invalid, 1).status_code == 422
+
+
+def test_v4_atrophy_reviews_survive_regrouping(workspace):
+    client, sid, _ = workspace
+    old = Assessment(schema_version='4.0').model_dump()
+    old['findings'].update(rounded_atrophy='present', angular_atrophy='uncertain', perifascicular_atrophy='absent')
+    old['finding_grades'].update(rounded_atrophy='grade_3', angular_atrophy='grade_1', perifascicular_atrophy='not_applicable')
+    assert save(client, sid, old).status_code == 200
+    current = {**old, 'schema_version': '4.1', 'finding_grades': {**old['finding_grades'], 'angular_atrophy': 'grade_2'}}
+    assert save(client, sid, current, 1).status_code == 200
+    assert [r['assessment'] for r in client.get(endpoint(sid, 'history')).json()] == [current, old]
+
+
+@pytest.mark.parametrize(('presence', 'types'), [
+    ('present', ['centered_nuclei', 'centered_nuclei']), ('uncertain', ['endomysial']),
+    ('absent', ['centered_nuclei']), ('not_assessable', ['centered_nuclei']), ('unassessed', ['centered_nuclei']),
+])
+def test_invalid_v3_finding_types(workspace, presence, types):
+    client, sid, _ = workspace
+    doc = AssessmentV3().model_dump()
+    doc['findings']['internal_nuclei'] = presence
+    doc['finding_types']['internal_nuclei'] = types
+    assert save(client, sid, doc).status_code == 422
+
+
+def test_v2_nuclear_grades_and_nested_v1_snapshot_survive_new_revision(workspace):
+    client, sid, _ = workspace
+    original = LegacyAssessment().model_dump()
+    v1 = {k: original[k] for k in ('schema_version', 'findings')}
+    v2 = AssessmentV2(legacy_findings=v1).model_dump()
+    for id, grade in [('internal_nuclei_noncentered', 'grade_1'), ('centered_nuclei', 'grade_3')]:
+        v2['findings'][id] = 'present'
+        v2['finding_grades'][id] = grade
+    assert save(client, sid, v2).status_code == 200
+    row = next(csv.DictReader(io.StringIO(client.get('/api/export.csv').text)))
+    assert json.loads(row['finding_types_json']) is None
+    snapshot = {k: v2[k] for k in ('schema_version', 'findings', 'finding_grades', 'legacy_findings')}
+    current = AssessmentV3(legacy_findings=snapshot).model_dump()
+    current['findings']['internal_nuclei'] = 'present'
+    current['finding_types']['internal_nuclei'] = ['internal_nuclei_noncentered', 'centered_nuclei']
+    assert save(client, sid, current, 1).status_code == 200
+    assert save(client, sid, v2, 2).status_code == 409
+    history = client.get(endpoint(sid, 'history')).json()
+    assert [item['assessment'] for item in history] == [current, v2]
+    row = next(csv.DictReader(io.StringIO(client.get('/api/export.csv').text)))
+    assert json.loads(row['legacy_findings_json']) == snapshot
+
+    # A v4 review retains the v3 group grades and selections as historical data.
+    current['finding_grades']['internal_nuclei'] = 'grade_2'
+    assert save(client, sid, current, 2).status_code == 200
+    v3_snapshot = {k: current[k] for k in ('schema_version', 'findings', 'finding_grades', 'finding_types', 'legacy_findings')}
+    revised = Assessment(legacy_findings=v3_snapshot).model_dump()
+    revised['findings']['centered_nuclei'] = 'present'
+    revised['finding_grades']['centered_nuclei'] = 'grade_3'
+    assert save(client, sid, revised, 3).status_code == 200
+    assert save(client, sid, current, 4).status_code == 409
+    assert [r['assessment'] for r in client.get(endpoint(sid, 'history')).json()] == [revised, current, history[0]['assessment'], v2]
+    row = next(csv.DictReader(io.StringIO(client.get('/api/export.csv').text)))
+    assert json.loads(row['legacy_findings_json']) == v3_snapshot
+    assert json.loads(row['finding_grades_json'])['centered_nuclei'] == 'grade_3'
 
 
 @pytest.mark.parametrize('bad_grade', ['low', 'high', 'mild', 'grade_0', 'grade_4', 2])
@@ -417,4 +562,4 @@ def test_earlier_combined_findings_remain_in_history_and_migration_snapshot(work
     assert history[0]['assessment']['legacy_findings']['findings'] == legacy['findings']
     assert set(history[0]['assessment']['findings'].values()) == {'unassessed'}
     assert set(history[0]['assessment']['finding_grades'].values()) == {'unassessed'}
-    assert len(client.get('/api/export.json').json()['definition_versions']) == 3
+    assert version in client.get('/api/export.json').json()['definition_versions']

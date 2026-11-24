@@ -1,0 +1,208 @@
+{
+  "version": "4.1",
+  "status": "Prototype vocabulary; requires review with participating doctors",
+  "principle": "Record visible morphology on this H&E section. Patterns may coexist; these assessments do not establish a patient diagnosis.",
+  "presence": [
+    "unassessed",
+    "present",
+    "absent",
+    "uncertain",
+    "not_assessable"
+  ],
+  "severity": [
+    "unassessed",
+    "mild",
+    "moderate",
+    "marked",
+    "not_applicable"
+  ],
+  "certainty": [
+    "low",
+    "moderate",
+    "high"
+  ],
+  "patterns": [
+    {
+      "id": "myopathic",
+      "label": "Myopathic pattern"
+    },
+    {
+      "id": "dystrophic",
+      "label": "Dystrophic pattern"
+    },
+    {
+      "id": "inflammatory",
+      "label": "Inflammatory pattern"
+    },
+    {
+      "id": "neurogenic",
+      "label": "Neurogenic pattern"
+    }
+  ],
+  "findings": [
+    {
+      "id": "fiber_size_variation",
+      "label": "Variation in fiber size"
+    },
+    {
+      "id": "nuclear_alterations",
+      "previous_id": "internal_nuclei",
+      "label": "Nuclear alterations",
+      "types": [
+        {
+          "id": "internal_nuclei_noncentered",
+          "label": "Internal nuclei",
+          "help": "Off-center within the fiber"
+        },
+        {
+          "id": "centered_nuclei",
+          "label": "Central nuclei"
+        }
+      ]
+    },
+    {
+      "id": "necrosis",
+      "label": "Necrosis"
+    },
+    {
+      "id": "regeneration",
+      "label": "Regeneration"
+    },
+    {
+      "id": "inflammatory_infiltrate",
+      "label": "Inflammatory cells",
+      "types": [
+        {
+          "id": "perimysial",
+          "label": "Perimysial"
+        },
+        {
+          "id": "endomysial",
+          "label": "Endomysial"
+        },
+        {
+          "id": "perivascular",
+          "label": "Perivascular"
+        }
+      ]
+    },
+    {
+      "id": "fibrosis_adipose",
+      "label": "Fibrosis / fat replacement",
+      "help": "Muscle replaced by fibrous tissue or fat cells (adipocytes)."
+    },
+    {
+      "id": "atrophy",
+      "label": "Atrophy",
+      "types": [
+        {
+          "id": "rounded_atrophy",
+          "label": "Rounded"
+        },
+        {
+          "id": "angular_atrophy",
+          "label": "Angular"
+        },
+        {
+          "id": "perifascicular_atrophy",
+          "label": "Perifascicular"
+        }
+      ]
+    }
+  ],
+  "coordinates": "Evidence rectangles use level-0 pixels of the full original slide, with origin at top-left. No bounds cropping or rotation.",
+  "certainty_default": "high",
+  "change_note": "Rounded, angular, and perifascicular atrophy are grouped under Atrophy. Each type retains its existing finding ID, presence, and grade.",
+  "finding_grades": [
+    {
+      "id": "unassessed",
+      "label": "Not yet graded"
+    },
+    {
+      "id": "grade_1",
+      "label": "Grade 1 · Mild"
+    },
+    {
+      "id": "grade_2",
+      "label": "Grade 2 · Moderate"
+    },
+    {
+      "id": "grade_3",
+      "label": "Grade 3 · Severe"
+    },
+    {
+      "id": "not_applicable",
+      "label": "Not applicable"
+    }
+  ],
+  "grading_note": "Finding grades describe the degree of the finding, independently of presence and confidence. No numeric tissue-percentage thresholds are specified. Grades start unassessed and are not inferred from legacy reviews.",
+  "dominant_options": [
+    {
+      "id": "unassessed",
+      "label": "Choose a main pattern…"
+    },
+    {
+      "id": "myopathic",
+      "label": "Myopathic"
+    },
+    {
+      "id": "dystrophic",
+      "label": "Dystrophic"
+    },
+    {
+      "id": "inflammatory",
+      "label": "Inflammatory"
+    },
+    {
+      "id": "neurogenic",
+      "label": "Neurogenic"
+    },
+    {
+      "id": "mixed",
+      "label": "Mixed"
+    },
+    {
+      "id": "no_dominant_pattern",
+      "label": "No dominant pattern identified"
+    },
+    {
+      "id": "uncertain",
+      "label": "Uncertain"
+    },
+    {
+      "id": "not_assessable",
+      "label": "Cannot assess"
+    }
+  ],
+  "completion_requires": [
+    "overall",
+    "dominant"
+  ],
+  "migration": {
+    "from_versions": [
+      "1.0",
+      "1.1",
+      "2.0",
+      "3.0",
+      "4.0"
+    ],
+    "retired_findings": [
+      {
+        "id": "internal_nuclei",
+        "label": "Internal nuclei (original category)"
+      },
+      {
+        "id": "necrosis_regeneration",
+        "label": "Necrosis / regeneration (previous combined category)"
+      },
+      {
+        "id": "grouped_atrophy",
+        "label": "Grouped atrophy (previous category)"
+      }
+    ],
+    "carry_from_v1": [
+      "fiber_size_variation",
+      "fibrosis_adipose"
+    ]
+  }
+}

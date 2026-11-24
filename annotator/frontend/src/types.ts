@@ -3,7 +3,14 @@ export type Severity = 'unassessed' | 'mild' | 'moderate' | 'marked' | 'not_appl
 export type Certainty = 'unassessed' | 'low' | 'moderate' | 'high'
 export type FindingGrade = 'unassessed' | 'grade_1' | 'grade_2' | 'grade_3' | 'not_applicable'
 export type Kind = 'individual' | 'adjudicated'
-export type Region = { id: string; label: string; x: number; y: number; width: number; height: number }
+export const maxEvidenceRegions = 500
+export type ImagePoint = [number, number]
+export type BrushStroke = { shape: 'brush'; diameter: number; points: ImagePoint[] }
+export type Bounds = { x: number; y: number; width: number; height: number }
+export type RegionTool = 'paint' | 'erase' | 'outline'
+export type RegionStroke = Omit<BrushStroke, 'shape'> & { mode: RegionTool | 'fill' }
+export type Compound = { shape: 'compound'; base: Bounds | null; strokes: RegionStroke[] }
+export type Region = { id: string; label: string } & (Bounds | BrushStroke | Compound)
 export type Pattern = { presence: Presence; severity: Severity; certainty: Certainty }
 type AssessmentFields = {
   status: 'in_progress' | 'complete'
@@ -15,23 +22,40 @@ type AssessmentFields = {
 type PatternChoice = 'myopathic' | 'dystrophic' | 'inflammatory' | 'neurogenic' | 'mixed' | 'uncertain'
 export type LegacyAssessment = AssessmentFields & { schema_version: '1.0' | '1.1'; dominant: 'none' | PatternChoice }
 export type LegacyFindings = { schema_version: '1.0' | '1.1'; findings: Record<string, Presence> }
-export type CurrentAssessment = AssessmentFields & {
-  schema_version: '2.0'; dominant: 'unassessed' | 'no_dominant_pattern' | 'not_assessable' | PatternChoice
-  finding_grades: Record<string, FindingGrade>; legacy_findings: LegacyFindings | null
+type GradedAssessment = AssessmentFields & {
+  dominant: 'unassessed' | 'no_dominant_pattern' | 'not_assessable' | PatternChoice
+  finding_grades: Record<string, FindingGrade>
 }
-export type Assessment = LegacyAssessment | CurrentAssessment
+export type AssessmentV2 = GradedAssessment & {
+  schema_version: '2.0'; legacy_findings: LegacyFindings | null
+}
+type PreviousFindingsV2 = Pick<AssessmentV2, 'schema_version' | 'findings' | 'finding_grades' | 'legacy_findings'>
+export type AssessmentV3 = GradedAssessment & {
+  schema_version: '3.0'; finding_types: Record<string, string[]>
+  legacy_findings: LegacyFindings | PreviousFindingsV2 | null
+}
+type PreviousFindingsV3 = Pick<AssessmentV3, 'schema_version' | 'findings' | 'finding_grades' | 'finding_types' | 'legacy_findings'>
+export const currentSchemaVersion = '4.3'
+export type CurrentAssessment = GradedAssessment & {
+  schema_version: typeof currentSchemaVersion
+  legacy_findings: LegacyFindings | PreviousFindingsV2 | PreviousFindingsV3 | null
+}
+type AssessmentV4 = Omit<CurrentAssessment, 'schema_version'> & { schema_version: '4.0' | '4.1' | '4.2' }
+export type Assessment = LegacyAssessment | AssessmentV2 | AssessmentV3 | AssessmentV4 | CurrentAssessment
 export type Saved = { revision: number; saved_at: string | null; assessment: Assessment }
 export type Slide = {
   id: string; name: string; available: number
   status: 'unassessed' | 'in_progress' | 'complete'; revision: number | null; saved_at: string | null
 }
-type DefinitionOption = { id: string; label: string; help?: string }
+export type DefinitionOption = { id: string; label: string; help?: string }
 export type Definitions = {
-  version: string; principle: string; patterns: DefinitionOption[]; findings: DefinitionOption[]
+  version: string; principle: string; patterns: DefinitionOption[]
+  findings: (DefinitionOption & { types?: DefinitionOption[]; previous_id?: string })[]
   finding_grades: DefinitionOption[]; dominant_options: DefinitionOption[]
-  migration: { from_versions: string[]; carry_findings: string[]; retired_findings: DefinitionOption[] }
+  migration: { from_versions: string[]; carry_from_v1: string[]; retired_findings: DefinitionOption[] }
 }
-export type Configuration = { definitions: Definitions; scan: { indexed: number; warnings: string[] } }
+export type HistoricalVocabulary = { findings: Definitions['findings']; finding_grades?: DefinitionOption[] }
+export type Configuration = { definitions: Definitions; definition_versions: Record<string, HistoricalVocabulary>; scan: { indexed: number; warnings: string[] } }
 export type SlideInfo = { width: number; height: number; mpp: string | null; mpp_y: string | null; calibration_source: string | null; objective: string | null; levels: number }
 
 export async function api<T>(path: string, options?: RequestInit): Promise<T> {
@@ -59,16 +83,40 @@ export const presenceOptions = [
 ] as const
 export const certaintyOptions = [['low', 'Low'], ['moderate', 'Moderate'], ['high', 'High']] as const
 
-// Pure display projection: the loaded record and its revision remain untouched.
-// Redefined/split categories start unassessed; never copy a combined answer into
-// its parts. The snapshot also preserves earlier browser-only drafts on edit.
+// Project an earlier vocabulary for display. Only an explicit edit saves the new version.
 export function assessmentForReview(document: Assessment, definitions: Definitions): CurrentAssessment {
-  if (document.schema_version === '2.0') return document
-  const findings: Record<string, Presence> = Object.fromEntries(definitions.findings.map(finding => [finding.id,
-    definitions.migration.carry_findings.includes(finding.id) ? document.findings[finding.id] ?? 'unassessed' : 'unassessed']))
-  return { ...document, schema_version: '2.0', dominant: document.dominant === 'none' ? 'unassessed' : document.dominant,
-    findings, finding_grades: Object.fromEntries(Object.entries(findings).map(([id, presence]) => [id, presence === 'absent' ? 'not_applicable' : 'unassessed'])),
-    legacy_findings: { schema_version: document.schema_version, findings: { ...document.findings } } }
+  if (document.schema_version === currentSchemaVersion) return document
+  if (document.schema_version === '4.0' || document.schema_version === '4.1' || document.schema_version === '4.2') return { ...document, schema_version: currentSchemaVersion }
+  const findings: Record<string, Presence> = {}
+  const finding_grades: Record<string, FindingGrade> = {}
+  const graded = document.schema_version === '2.0' || document.schema_version === '3.0'
+  for (const group of definitions.findings) {
+    for (const item of group.types ?? [group]) {
+      const id = item.id
+      const carry = graded || definitions.migration.carry_from_v1.includes(id)
+      findings[id] = carry ? document.findings[id] ?? 'unassessed' : 'unassessed'
+      finding_grades[id] = graded ? document.finding_grades[id] ?? 'unassessed'
+        : findings[id] === 'absent' ? 'not_applicable' : 'unassessed'
+      // A v3 checkbox qualified the parent's presence. Its shared grade was
+      // never a measurement of that location or nuclear type.
+      if (document.schema_version === '3.0' && group.types) {
+        const oldGroup = group.previous_id ?? group.id
+        if (document.finding_types[oldGroup]?.includes(id)) findings[id] = document.findings[oldGroup]
+      }
+    }
+  }
+  let snapshot: NonNullable<CurrentAssessment['legacy_findings']>
+  if (document.schema_version === '3.0') {
+    snapshot = { schema_version: '3.0', findings: document.findings, finding_grades: document.finding_grades,
+      finding_types: document.finding_types, legacy_findings: document.legacy_findings }
+  } else if (document.schema_version === '2.0') {
+    snapshot = { schema_version: '2.0', findings: document.findings, finding_grades: document.finding_grades, legacy_findings: document.legacy_findings }
+  } else {
+    snapshot = { schema_version: document.schema_version, findings: document.findings }
+  }
+  const { status, overall, extent, certainty, patterns, comments, regions } = document
+  return { schema_version: currentSchemaVersion, status, overall, extent, certainty, patterns, comments, regions,
+    dominant: document.dominant === 'none' ? 'unassessed' : document.dominant, findings, finding_grades, legacy_findings: snapshot }
 }
 
 // Confidence defaults apply only when the reviewer explicitly edits or completes.

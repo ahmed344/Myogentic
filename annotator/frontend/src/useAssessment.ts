@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, type Assessment, type CurrentAssessment, type Kind, type Saved } from './types'
+import { api, currentSchemaVersion, type Assessment, type CurrentAssessment, type Kind, type Saved } from './types'
 
 type Draft = { expected_revision: number; assessment: Assessment }
 export function useAssessment(slideId: string, reviewer: string, kind: Kind, onSaved: (saved: Saved) => void) {
@@ -30,7 +30,7 @@ export function useAssessment(slideId: string, reviewer: string, kind: Kind, onS
       revisionRef.current = saved.revision; setRevision(saved.revision)
       let draft: Draft | null = null
       try { draft = JSON.parse(localStorage.getItem(draftKey) || 'null') } catch { /* Invalid browser cache. */ }
-      const restored = draft && ['1.0', '1.1', '2.0'].includes(draft.assessment?.schema_version) ? draft : null
+      const restored = draft && ['1.0', '1.1', '2.0', '3.0', '4.0', '4.1', '4.2', currentSchemaVersion].includes(draft.assessment?.schema_version) ? draft : null
       current.current = restored ? restored.assessment : saved.assessment
       setDocument(current.current)
       if (restored) {
@@ -100,6 +100,7 @@ export function useAssessment(slideId: string, reviewer: string, kind: Kind, onS
       try { localStorage.removeItem(draftKey) } catch { /* Storage may be disabled. */ }
       setDocument(saved.assessment); setRevision(saved.revision)
       setError(''); setRecovered(false); setState(saved.revision ? 'All changes saved' : 'Ready to annotate')
+      return true
     } catch (e) { setError((e as Error).message) }
   }
   return { document, change, flush, revision, state, error, recovered, discardDraft }

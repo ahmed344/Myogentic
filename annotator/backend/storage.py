@@ -115,10 +115,14 @@ class Store:
         saved_at = datetime.now(timezone.utc).isoformat()
         with self.connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            current = db.execute("""SELECT MAX(revision) FROM revisions
-                WHERE slide_id=? AND reviewer=? AND kind=?""", (slide_id, reviewer, kind)).fetchone()[0] or 0
+            latest = db.execute("""SELECT revision, json_extract(document, '$.schema_version') AS schema_version
+                FROM revisions WHERE slide_id=? AND reviewer=? AND kind=? ORDER BY revision DESC LIMIT 1""",
+                (slide_id, reviewer, kind)).fetchone()
+            current = latest["revision"] if latest else 0
             if current != expected_revision:
                 raise Conflict("A newer revision exists. Export your unsaved draft, then reload to review the saved version.")
+            if latest and tuple(map(int, assessment.schema_version.split("."))) < tuple(map(int, latest["schema_version"].split("."))):
+                raise Conflict("This review uses updated finding types. Export your draft and refresh the page before editing.")
             slide = db.execute("SELECT size,modified_ns,source,relative_path FROM slides WHERE id=?", (slide_id,)).fetchone()
             db.execute("INSERT INTO revisions VALUES (?,?,?,?,?,?,?)", (
                 slide_id, reviewer, kind, current + 1, saved_at, assessment.model_dump_json(), json.dumps(dict(slide))))

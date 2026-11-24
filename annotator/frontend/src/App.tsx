@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { AssessmentWorkspace, type WorkspaceHandle } from './AssessmentWorkspace'
-import { api, type Configuration, type Kind, type Saved, type Slide } from './types'
+import { api, currentSchemaVersion, type Configuration, type Kind, type Saved, type Slide } from './types'
 
 function cached(key: string) { try { return localStorage.getItem(key) || '' } catch { return '' } }
 function cache(key: string, value: string) { try { localStorage.setItem(key, value) } catch { /* Browser storage may be disabled. */ } }
@@ -39,7 +39,10 @@ export default function App() {
 
   useEffect(() => {
     const controller = new AbortController()
-    api<Configuration>('/api/config', { signal: controller.signal }).then(setConfig).catch(e => { if (e.name !== 'AbortError') setError(e.message) })
+    api<Configuration>('/api/config', { signal: controller.signal }).then(result => {
+      if (result.definitions.version !== currentSchemaVersion) throw new Error('Restart the annotator server and refresh this page to load the updated finding types.')
+      setConfig(result)
+    }).catch(e => { if (e.name !== 'AbortError') setError(e.message) })
     return () => controller.abort()
   }, [refresh])
 
@@ -122,10 +125,17 @@ export default function App() {
       </aside>
       <main className="main-workspace">
         <div className="slide-heading"><div><p className="eyebrow">H&amp;E · BLINDED REVIEW</p><h1 className={activeSlide ? 'slide-identifier' : undefined} title={activeSlide?.name}>{activeSlide?.name || 'Choose a slide to begin'}</h1></div><div className="slide-navigation"><select aria-label="Annotation record type" value={kind} disabled={busy} onChange={e => void guarded(() => setKind(e.target.value as Kind))}><option value="individual">Individual review</option><option value="adjudicated">Team consensus</option></select><button disabled={busy || position <= 0} onClick={() => choose(visible[position - 1].id)} title="Previous slide ([)" aria-label="Previous slide">←</button><button disabled={busy || position < 0 || position >= visible.length - 1} onClick={() => choose(visible[position + 1].id)} title="Next slide (])" aria-label="Next slide">→</button></div></div>
-        <div className="review-layout">{activeSlide && config && reviewer && !loading ? <AssessmentWorkspace key={`${selected}:${reviewer}:${kind}`} ref={workspace} slide={activeSlide} reviewer={reviewer} kind={kind} definitions={config.definitions} onSaved={onSaved} onNext={nextSlide} onViewed={() => setThumbnailVersions(versions => ({ ...versions, [selected]: (versions[selected] || 0) + 1 }))} /> : <div className="welcome"><img className="welcome-mark" src="/muscle-hero.svg" alt="Myogentic muscle mascot" width="150" height="150" /><p className="eyebrow">OBSERVE · ANNOTATE · REVIEW</p><h2>A closer look at muscle morphology.</h2><p>Open a local whole-slide image and record your observations.<br />Your slides and assessments stay on this computer.</p>{!reviewer && <button className="primary-button" onClick={() => setShowReviewer(true)}>Choose reviewer</button>}{loading && <p>Loading your workspace…</p>}</div>}</div>
+        <div className="review-layout">{activeSlide && config && reviewer && !loading ? <AssessmentWorkspace key={`${selected}:${reviewer}:${kind}`} ref={workspace} slide={activeSlide} reviewer={reviewer} kind={kind} definitions={config.definitions} definitionVersions={config.definition_versions} onSaved={onSaved} onNext={nextSlide} onViewed={() => setThumbnailVersions(versions => ({ ...versions, [selected]: (versions[selected] || 0) + 1 }))} /> : <div className="welcome"><img className="welcome-mark" src="/muscle-hero.svg" alt="Myogentic muscle mascot" width="150" height="150" /><p className="eyebrow">OBSERVE · ANNOTATE · REVIEW</p><h2>A closer look at muscle morphology.</h2><p>Open a local whole-slide image and record your observations.<br />Your slides and assessments stay on this computer.</p>{!reviewer && <button className="primary-button" onClick={() => setShowReviewer(true)}>Choose reviewer</button>}{loading && <p>Loading your workspace…</p>}</div>}</div>
       </main>
     </div>
     {showReviewer && <div className="modal-backdrop"><form className="modal reviewer-modal" role="dialog" aria-modal="true" aria-labelledby="reviewer-title" onSubmit={event => { event.preventDefault(); const name = reviewerInput.trim(); if (!name) return; void guarded(() => { cache('myogentic:reviewer', name); setReviewer(name); setShowReviewer(false) }) }}><p className="eyebrow">YOUR ANNOTATION WORKSPACE</p><h2 id="reviewer-title">Who is reviewing?</h2><p>Use the same name or reviewer ID each time. Each reviewer’s annotations and saved versions are kept separately.</p><label className="field"><span>Reviewer name or ID</span><input autoFocus required minLength={1} maxLength={80} pattern="[\p{L}\p{N}_ .@+\-]+" placeholder="e.g. Doctor 01" value={reviewerInput} onChange={e => setReviewerInput(e.target.value)} /></label><small className="modal-note">This is a local reviewer profile, not a sign-in or access control.</small><div className="button-row">{reviewer && <button type="button" onClick={() => setShowReviewer(false)}>Cancel</button>}<button className="primary-button" disabled={!reviewerInput.trim() || busy}>Open workspace →</button></div></form></div>}
-    {showHelp && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts"><div className="modal-title"><h2>Keyboard shortcuts</h2><button onClick={() => setShowHelp(false)} aria-label="Close shortcuts">×</button></div><div className="shortcut"><kbd>R</kbd><span>Mark a region with a rectangle</span></div><div className="shortcut"><kbd>H</kbd><span>Fit the whole slide</span></div><div className="shortcut"><kbd>[</kbd><kbd>]</kbd><span>Previous / next filtered slide</span></div><div className="shortcut"><kbd>Esc</kbd><span>Cancel drawing</span></div><p>Scroll to zoom, drag to move, or double-click to zoom in. Changes save automatically after a short pause.</p><p>Shortcuts are paused while typing in a form.</p></section></div>}
+    {showHelp && <div className="modal-backdrop"><section className="modal" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts"><div className="modal-title"><h2>Keyboard shortcuts</h2><button onClick={() => setShowHelp(false)} aria-label="Close shortcuts">×</button></div><div className="shortcut"><kbd>R</kbd><span>Toggle the freehand evidence brush</span></div><div className="shortcut"><kbd>H</kbd><span>Fit the whole slide</span></div><div className="shortcut"><kbd>[</kbd><kbd>]</kbd><span>Previous / next filtered slide</span></div>
+        <div className="shortcut"><kbd>Ctrl + drag</kbd><span>Paint into the active region</span></div>
+        <div className="shortcut"><kbd>Alt + drag</kbd><span>Erase from the active region</span></div>
+        <div className="shortcut"><kbd>Enter</kbd><span>Finish this region and start the next</span></div>
+        <div className="shortcut"><kbd>Ctrl+Enter / Shift+Enter</kbd><span>Close and fill the outline, then start the next region</span></div>
+        <div className="shortcut"><kbd>Delete / Backspace</kbd><span>Delete the selected region</span></div>
+        <div className="shortcut"><kbd>Ctrl / ⌘ + Z</kbd><span>Undo the last region edit or deletion</span></div>
+        <div className="shortcut"><kbd>Esc</kbd><span>Cancel the current stroke and return to pan</span></div><p>Scroll to zoom, drag to move, or double-click to zoom in. Changes save automatically after a short pause.</p><p>Shortcuts are paused while typing in a form.</p></section></div>}
   </div>
 }
